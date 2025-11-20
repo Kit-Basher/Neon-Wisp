@@ -242,8 +242,9 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       inputMoveY += mobileInput.current.move.y;
       
       // Camera Look (Delta)
-      inputLookX += mobileInput.current.look.x * 200; // Scale for sensitivity
-      inputLookY += mobileInput.current.look.y * 200;
+      // Reduced sensitivity from 200 to 70
+      inputLookX += mobileInput.current.look.x * 70; 
+      inputLookY += mobileInput.current.look.y * 70;
 
       // Reset mobile look delta after reading
       mobileInput.current.look.x = 0;

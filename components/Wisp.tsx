@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Vector3, Color, Group, Mesh } from 'three';
+import { Vector3, Color, Group, Mesh, MathUtils } from 'three';
 import { Trail } from '@react-three/drei';
 import { BuildingData, StarData } from '../types';
 import { audioService } from '../services/audioService';
@@ -22,34 +22,36 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   const groupRef = useRef<Group>(null);
   const ropeRef = useRef<Mesh>(null);
   const { camera } = useThree();
-  
+
   const onUpdatePosRef = useRef(onUpdatePosition);
   useEffect(() => {
     onUpdatePosRef.current = onUpdatePosition;
   }, [onUpdatePosition]);
-  
+
   // Cache collected stars to prevent double-triggering in the physics loop before React updates
   const collectedCache = useRef(new Set<string>());
-  
+
   // Sync cache with props
   useEffect(() => {
-      collectedStars.forEach(id => collectedCache.current.add(id));
+    collectedStars.forEach(id => collectedCache.current.add(id));
   }, [collectedStars]);
 
   const MOVE_SPEED_BASE = 12.0;
-  const dynamicSpeed = MOVE_SPEED_BASE * (1 + score * 0.02); 
+  const dynamicSpeed = MOVE_SPEED_BASE * (1 + score * 0.02);
   const moveSpeedRef = useRef(dynamicSpeed);
   moveSpeedRef.current = dynamicSpeed;
 
   const GRAVITY = 30.0;
-  const JUMP_FORCE = 22.0; 
-  const WALL_JUMP_FORCE_UP = 24.0; 
-  const WALL_JUMP_FORCE_OUT = 40.0; // Increased for better detachment
+  const JUMP_FORCE = 22.0;
+  const WALL_JUMP_FORCE_UP = 24.0;
+  const WALL_JUMP_FORCE_OUT = 40.0;
   const GLIDE_GRAVITY_SCALE = 0.1;
-  const AIR_CONTROL = 0.3; 
-  const GRAPPLE_SPEED_MULT = 2.5; 
+  const AIR_CONTROL = 0.3;
+  const GRAPPLE_SPEED_MULT = 2.5;
   const GRAPPLE_PULL_FORCE = 60.0;
-  const PLAYER_RADIUS = 0.15; 
+  const PLAYER_RADIUS = 0.15;
+  const COLLISION_BUFFER = 1.5;
+  const STICKY_FORCE = 30.0;
 
   const keys = useRef<{ [key: string]: boolean }>({});
   const mouse = useRef<{ left: boolean }>({ left: false });
@@ -59,19 +61,19 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   const canJump = useRef(true);
   const canGrapple = useRef(true);
   const grapplePoint = useRef<Vector3 | null>(null);
-  const wallJumpCooldown = useRef(0); // Timer to ignore wall collision after jumping
+  const wallJumpCooldown = useRef(0);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => { keys.current[e.code] = true; };
     const handleKeyUp = (e: KeyboardEvent) => { keys.current[e.code] = false; };
-    const handleMouseDown = (e: MouseEvent) => { if(e.button === 0) mouse.current.left = true; };
-    const handleMouseUp = (e: MouseEvent) => { if(e.button === 0) mouse.current.left = false; };
-    
+    const handleMouseDown = (e: MouseEvent) => { if (e.button === 0) mouse.current.left = true; };
+    const handleMouseUp = (e: MouseEvent) => { if (e.button === 0) mouse.current.left = false; };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
-    
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
@@ -81,107 +83,146 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   }, []);
 
   const castGrappleRay = (origin: Vector3, dir: Vector3): Vector3 | null => {
-      let minDist = 150; 
-      let hitPoint: Vector3 | null = null;
+    let minDist = 150;
+    let hitPoint: Vector3 | null = null;
 
-      for (const b of buildings) {
-          const distToCenter = origin.distanceTo(new Vector3(...b.position));
-          if (distToCenter > minDist + Math.max(b.scale[0], b.scale[2])) continue;
+    for (const b of buildings) {
+      const distToCenter = origin.distanceTo(new Vector3(...b.position));
+      if (distToCenter > minDist + Math.max(b.scale[0], b.scale[2])) continue;
 
-          const minX = b.position[0] - b.scale[0] / 2;
-          const maxX = b.position[0] + b.scale[0] / 2;
-          const minY = b.position[1] - b.scale[1] / 2;
-          const maxY = b.position[1] + b.scale[1] / 2;
-          const minZ = b.position[2] - b.scale[2] / 2;
-          const maxZ = b.position[2] + b.scale[2] / 2;
+      const minX = b.position[0] - b.scale[0] / 2;
+      const maxX = b.position[0] + b.scale[0] / 2;
+      const minY = b.position[1] - b.scale[1] / 2;
+      const maxY = b.position[1] + b.scale[1] / 2;
+      const minZ = b.position[2] - b.scale[2] / 2;
+      const maxZ = b.position[2] + b.scale[2] / 2;
 
-          const t1 = (minX - origin.x) / dir.x;
-          const t2 = (maxX - origin.x) / dir.x;
-          const t3 = (minY - origin.y) / dir.y;
-          const t4 = (maxY - origin.y) / dir.y;
-          const t5 = (minZ - origin.z) / dir.z;
-          const t6 = (maxZ - origin.z) / dir.z;
+      const t1 = (minX - origin.x) / dir.x;
+      const t2 = (maxX - origin.x) / dir.x;
+      const t3 = (minY - origin.y) / dir.y;
+      const t4 = (maxY - origin.y) / dir.y;
+      const t5 = (minZ - origin.z) / dir.z;
+      const t6 = (maxZ - origin.z) / dir.z;
 
-          const tmin = Math.max(Math.max(Math.min(t1, t2), Math.min(t3, t4)), Math.min(t5, t6));
-          const tmax = Math.min(Math.min(Math.max(t1, t2), Math.max(t3, t4)), Math.max(t5, t6));
+      const tmin = Math.max(Math.max(Math.min(t1, t2), Math.min(t3, t4)), Math.min(t5, t6));
+      const tmax = Math.min(Math.min(Math.max(t1, t2), Math.max(t3, t4)), Math.max(t5, t6));
 
-          if (tmax < 0) continue;
-          if (tmin > tmax) continue;
+      if (tmax < 0) continue;
+      if (tmin > tmax) continue;
 
-          if (tmin < minDist && tmin > 0) {
-              minDist = tmin;
-              hitPoint = origin.clone().add(dir.clone().multiplyScalar(tmin));
-          }
+      if (tmin < minDist && tmin > 0) {
+        minDist = tmin;
+        hitPoint = origin.clone().add(dir.clone().multiplyScalar(tmin));
       }
+    }
 
-      return hitPoint;
+    return hitPoint;
   };
 
   const checkCollision = (pos: Vector3): { type: 'none' | 'floor' | 'wall', y?: number, normal?: Vector3, snapPos?: Vector3 } => {
-      if (pos.y < PLAYER_RADIUS) return { type: 'floor', y: PLAYER_RADIUS };
+    if (pos.y < PLAYER_RADIUS) return { type: 'floor', y: PLAYER_RADIUS };
 
-      for (const b of buildings) {
-          if (Math.abs(pos.x - b.position[0]) > b.scale[0]/2 + PLAYER_RADIUS + 3) continue;
-          if (Math.abs(pos.z - b.position[2]) > b.scale[2]/2 + PLAYER_RADIUS + 3) continue;
-          if (pos.y > b.position[1] + b.scale[1]/2 + 2) continue; 
-          if (pos.y < b.position[1] - b.scale[1]/2) continue;
+    for (const b of buildings) {
+      if (Math.abs(pos.x - b.position[0]) > b.scale[0] / 2 + PLAYER_RADIUS + 3) continue;
+      if (Math.abs(pos.z - b.position[2]) > b.scale[2] / 2 + PLAYER_RADIUS + 3) continue;
+      if (pos.y > b.position[1] + b.scale[1] / 2 + 2) continue;
+      if (pos.y < b.position[1] - b.scale[1] / 2) continue;
 
-          const minX = b.position[0] - b.scale[0] / 2;
-          const maxX = b.position[0] + b.scale[0] / 2;
-          const minZ = b.position[2] - b.scale[2] / 2;
-          const maxZ = b.position[2] + b.scale[2] / 2;
-          const maxY = b.position[1] + b.scale[1] / 2; 
-          
-          const buffer = 1.5; 
+      const minX = b.position[0] - b.scale[0] / 2;
+      const maxX = b.position[0] + b.scale[0] / 2;
+      const minZ = b.position[2] - b.scale[2] / 2;
+      const maxZ = b.position[2] + b.scale[2] / 2;
+      const maxY = b.position[1] + b.scale[1] / 2;
 
-          if (pos.x > minX - buffer && pos.x < maxX + buffer &&
-              pos.z > minZ - buffer && pos.z < maxZ + buffer &&
-              pos.y < maxY + buffer) {
-              
-              if (pos.y >= maxY - 1.0) {
-                  return { type: 'floor', y: maxY + PLAYER_RADIUS }; 
-              }
+      if (pos.x > minX - COLLISION_BUFFER && pos.x < maxX + COLLISION_BUFFER &&
+        pos.z > minZ - COLLISION_BUFFER && pos.z < maxZ + COLLISION_BUFFER &&
+        pos.y < maxY + COLLISION_BUFFER) {
 
-              const distMinX = Math.abs(pos.x - minX);
-              const distMaxX = Math.abs(pos.x - maxX);
-              const distMinZ = Math.abs(pos.z - minZ);
-              const distMaxZ = Math.abs(pos.z - maxZ);
-              const min = Math.min(distMinX, distMaxX, distMinZ, distMaxZ);
-              
-              const normal = new Vector3();
-              const snapPos = pos.clone();
+        if (pos.y >= maxY - 1.0) {
+          return { type: 'floor', y: maxY + PLAYER_RADIUS };
+        }
 
-              if (min === distMinX) {
-                  normal.set(-1, 0, 0);
-                  snapPos.x = minX - PLAYER_RADIUS;
-              }
-              else if (min === distMaxX) {
-                  normal.set(1, 0, 0);
-                  snapPos.x = maxX + PLAYER_RADIUS;
-              }
-              else if (min === distMinZ) {
-                  normal.set(0, 0, -1);
-                  snapPos.z = minZ - PLAYER_RADIUS;
-              }
-              else if (min === distMaxZ) {
-                  normal.set(0, 0, 1);
-                  snapPos.z = maxZ + PLAYER_RADIUS;
-              }
+        const distMinX = Math.abs(pos.x - minX);
+        const distMaxX = Math.abs(pos.x - maxX);
+        const distMinZ = Math.abs(pos.z - minZ);
+        const distMaxZ = Math.abs(pos.z - maxZ);
+        const min = Math.min(distMinX, distMaxX, distMinZ, distMaxZ);
 
-              return { type: 'wall', normal, snapPos };
-          }
+        const normal = new Vector3();
+        const snapPos = pos.clone();
+
+        if (min === distMinX) {
+          normal.set(-1, 0, 0);
+          snapPos.x = minX - PLAYER_RADIUS;
+        }
+        else if (min === distMaxX) {
+          normal.set(1, 0, 0);
+          snapPos.x = maxX + PLAYER_RADIUS;
+        }
+        else if (min === distMinZ) {
+          normal.set(0, 0, -1);
+          snapPos.z = minZ - PLAYER_RADIUS;
+        }
+        else if (min === distMaxZ) {
+          normal.set(0, 0, 1);
+          snapPos.z = maxZ + PLAYER_RADIUS;
+        }
+
+        return { type: 'wall', normal, snapPos };
       }
-      return { type: 'none' };
+    }
+    return { type: 'none' };
   };
 
   useFrame((stateObj, delta) => {
     if (!groupRef.current || !isLocked) return;
-    
+
     const dt = Math.min(delta, 0.05);
     const moveSpeed = moveSpeedRef.current;
 
     if (wallJumpCooldown.current > 0) {
-        wallJumpCooldown.current -= dt;
+      wallJumpCooldown.current -= dt;
+    }
+
+    // --- INPUT POLLING (Keyboard + Gamepad) ---
+
+    // 1. Check Gamepad
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gamepad = gamepads[0]; // Use the first controller found
+
+    // Deadzone helper
+    const applyDeadzone = (val: number, threshold = 0.15) => {
+      return Math.abs(val) > threshold ? val : 0;
+    };
+
+    let gamepadMoveX = 0;
+    let gamepadMoveY = 0;
+    let gamepadLookX = 0;
+    let gamepadLookY = 0;
+    let gamepadJump = false;
+    let gamepadGrapple = false;
+
+    if (gamepad) {
+      gamepadMoveX = applyDeadzone(gamepad.axes[0]);
+      gamepadMoveY = applyDeadzone(gamepad.axes[1]);
+      gamepadLookX = applyDeadzone(gamepad.axes[2]);
+      gamepadLookY = applyDeadzone(gamepad.axes[3]);
+
+      // Button 0: A/Cross (Jump)
+      // Button 5: R1/RB (Grapple) or Button 7: R2/RT
+      gamepadJump = gamepad.buttons[0]?.pressed;
+      gamepadGrapple = gamepad.buttons[5]?.pressed || gamepad.buttons[7]?.pressed;
+
+      // --- CAMERA CONTROL (Right Stick) ---
+      const lookSensitivity = 2.0;
+      if (gamepadLookX !== 0 || gamepadLookY !== 0) {
+        // Yaw (Y-axis rotation)
+        camera.rotation.y -= gamepadLookX * lookSensitivity * dt;
+
+        // Pitch (X-axis rotation) with clamping to avoid flipping
+        camera.rotation.x -= gamepadLookY * lookSensitivity * dt;
+        camera.rotation.x = MathUtils.clamp(camera.rotation.x, -Math.PI / 2, Math.PI / 2);
+      }
     }
 
     const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -190,42 +231,53 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
     right.y = 0; right.normalize();
 
     const inputDir = new Vector3(0, 0, 0);
+
+    // Keyboard
     if (keys.current['KeyW']) inputDir.add(forward);
     if (keys.current['KeyS']) inputDir.sub(forward);
     if (keys.current['KeyA']) inputDir.sub(right);
     if (keys.current['KeyD']) inputDir.add(right);
+
+    // Gamepad (Left Stick)
+    if (gamepadMoveY !== 0) inputDir.add(forward.clone().multiplyScalar(-gamepadMoveY));
+    if (gamepadMoveX !== 0) inputDir.add(right.clone().multiplyScalar(gamepadMoveX));
+
     if (inputDir.lengthSq() > 0) inputDir.normalize();
 
-    // --- Star Collision Logic (Hot Path) ---
+    // Combine Inputs
+    const isJumpPressed = keys.current['Space'] || gamepadJump;
+    const isGrapplePressed = mouse.current.left || gamepadGrapple;
+
+    // --- Star Collision Logic ---
     const playerPos = groupRef.current.position;
-    const detectionRadiusSq = 12 * 12; 
+    const detectionRadiusSq = 12 * 12;
 
     for (let i = 0; i < stars.length; i++) {
-        const s = stars[i];
-        if (collectedCache.current.has(s.id)) continue;
+      const s = stars[i];
+      if (collectedCache.current.has(s.id)) continue;
 
-        const starPos = new Vector3(s.position[0], s.position[1], s.position[2]);
-        if (playerPos.distanceToSquared(starPos) < detectionRadiusSq) {
-            collectedCache.current.add(s.id); 
-            onCollectStar(s.id); 
-        }
+      const starPos = new Vector3(s.position[0], s.position[1], s.position[2]);
+      if (playerPos.distanceToSquared(starPos) < detectionRadiusSq) {
+        collectedCache.current.add(s.id);
+        onCollectStar(s.id);
+      }
     }
 
     // --- Grapple Logic ---
-    if (mouse.current.left) {
-        if (canGrapple.current && !grapplePoint.current) {
-            const rayDir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const hit = castGrappleRay(groupRef.current.position, rayDir);
-            if (hit) {
-                grapplePoint.current = hit;
-                state.current = 'GRAPPLING';
-                audioService.playGrapple();
-            }
+    if (isGrapplePressed) {
+      if (canGrapple.current && !grapplePoint.current) {
+        const rayDir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const hit = castGrappleRay(groupRef.current.position, rayDir);
+        if (hit) {
+          grapplePoint.current = hit;
+          state.current = 'GRAPPLING';
+          audioService.playGrapple();
         }
+      }
     } else {
-        grapplePoint.current = null;
-        if (state.current === 'GRAPPLING') state.current = 'AIR';
-        canGrapple.current = true;
+      grapplePoint.current = null;
+      if (state.current === 'GRAPPLING') state.current = 'AIR';
+      canGrapple.current = true;
     }
 
     // --- Physics State Machine ---
@@ -233,135 +285,135 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
     const isGliding = state.current === 'AIR' && velocity.current.y < 0;
 
     if (state.current === 'WALL') {
-        gravityMult = 0;
+      gravityMult = 0;
     } else if (state.current === 'GRAPPLING') {
-        gravityMult = 0.5; 
+      gravityMult = 0.5;
     } else if (isGliding) {
-        gravityMult = GLIDE_GRAVITY_SCALE;
+      gravityMult = GLIDE_GRAVITY_SCALE;
     }
-    
+
     if (state.current !== 'WALL' && state.current !== 'GROUND') {
-        velocity.current.y -= GRAVITY * gravityMult * dt;
+      velocity.current.y -= GRAVITY * gravityMult * dt;
     }
 
     const currentSpeed = moveSpeed * (state.current === 'AIR' ? AIR_CONTROL : 1.0);
-    
+
     if (state.current === 'GRAPPLING' && grapplePoint.current) {
-        const toPoint = grapplePoint.current.clone().sub(groupRef.current.position);
-        const dir = toPoint.normalize();
-        velocity.current.add(dir.multiplyScalar(GRAPPLE_PULL_FORCE * dt));
-        if (inputDir.lengthSq() > 0) {
-             velocity.current.add(inputDir.multiplyScalar(currentSpeed * GRAPPLE_SPEED_MULT * dt));
-        }
-        velocity.current.multiplyScalar(0.995);
+      const toPoint = grapplePoint.current.clone().sub(groupRef.current.position);
+      const dir = toPoint.normalize();
+      velocity.current.add(dir.multiplyScalar(GRAPPLE_PULL_FORCE * dt));
+      if (inputDir.lengthSq() > 0) {
+        velocity.current.add(inputDir.multiplyScalar(currentSpeed * GRAPPLE_SPEED_MULT * dt));
+      }
+      velocity.current.multiplyScalar(0.995);
 
     } else if (state.current === 'WALL') {
-        const vDotN = velocity.current.dot(wallNormal.current);
-        if (vDotN < 0) velocity.current.sub(wallNormal.current.clone().multiplyScalar(vDotN));
-        
-        const inputDotN = inputDir.dot(wallNormal.current);
-        const wallMoveDir = inputDir.clone().sub(wallNormal.current.clone().multiplyScalar(inputDotN));
-        
-        velocity.current.add(wallMoveDir.multiplyScalar(currentSpeed * 6 * dt)); 
-        velocity.current.x *= 0.92; 
-        velocity.current.z *= 0.92;
-        velocity.current.y *= 0.6; 
+      const vDotN = velocity.current.dot(wallNormal.current);
+      if (vDotN < 0) velocity.current.sub(wallNormal.current.clone().multiplyScalar(vDotN));
 
-        // Sticky force: Push into wall to maintain state contact
-        velocity.current.sub(wallNormal.current.clone().multiplyScalar(30.0 * dt));
+      const inputDotN = inputDir.dot(wallNormal.current);
+      const wallMoveDir = inputDir.clone().sub(wallNormal.current.clone().multiplyScalar(inputDotN));
 
-        if (keys.current['Space'] && canJump.current) {
-            velocity.current.y = WALL_JUMP_FORCE_UP;
-            // Increased force away from wall
-            velocity.current.add(wallNormal.current.clone().multiplyScalar(WALL_JUMP_FORCE_OUT));
-            state.current = 'AIR';
-            canJump.current = false;
-            grapplePoint.current = null;
-            wallJumpCooldown.current = 0.25; // Ignore wall collisions for 0.25s
-            audioService.playJump();
-        }
+      velocity.current.add(wallMoveDir.multiplyScalar(currentSpeed * 6 * dt));
+      velocity.current.x *= 0.92;
+      velocity.current.z *= 0.92;
+      velocity.current.y *= 0.6;
+
+      // Sticky force: Push into wall to maintain state contact
+      velocity.current.sub(wallNormal.current.clone().multiplyScalar(STICKY_FORCE * dt));
+
+      if (isJumpPressed && canJump.current) {
+        velocity.current.y = WALL_JUMP_FORCE_UP;
+        // Increased force away from wall
+        velocity.current.add(wallNormal.current.clone().multiplyScalar(WALL_JUMP_FORCE_OUT));
+        state.current = 'AIR';
+        canJump.current = false;
+        grapplePoint.current = null;
+        wallJumpCooldown.current = 0.25; // Ignore wall collisions for 0.25s
+        audioService.playJump();
+      }
 
     } else {
-        velocity.current.x += inputDir.x * currentSpeed * 10 * dt;
-        velocity.current.z += inputDir.z * currentSpeed * 10 * dt;
-        
-        const friction = state.current === 'GROUND' ? 0.85 : 0.97; 
-        velocity.current.x *= friction;
-        velocity.current.z *= friction;
+      velocity.current.x += inputDir.x * currentSpeed * 10 * dt;
+      velocity.current.z += inputDir.z * currentSpeed * 10 * dt;
 
-        if (keys.current['Space'] && state.current === 'GROUND' && canJump.current) {
-            velocity.current.y = JUMP_FORCE;
-            state.current = 'AIR';
-            canJump.current = false;
-            audioService.playJump();
-        }
+      const friction = state.current === 'GROUND' ? 0.85 : 0.97;
+      velocity.current.x *= friction;
+      velocity.current.z *= friction;
+
+      if (isJumpPressed && state.current === 'GROUND' && canJump.current) {
+        velocity.current.y = JUMP_FORCE;
+        state.current = 'AIR';
+        canJump.current = false;
+        audioService.playJump();
+      }
     }
-    
-    if (!keys.current['Space']) canJump.current = true;
+
+    if (!isJumpPressed) canJump.current = true;
 
     const nextPos = groupRef.current.position.clone().add(velocity.current.clone().multiplyScalar(dt));
     const collision = checkCollision(nextPos);
 
     if (collision.type === 'floor') {
-        if (velocity.current.y > 0) {
-             groupRef.current.position.copy(nextPos);
-             if (state.current === 'GROUND') state.current = 'AIR';
-        } else {
-            groupRef.current.position.set(nextPos.x, collision.y!, nextPos.z);
-            velocity.current.y = 0;
-            state.current = 'GROUND';
-            if (grapplePoint.current) {
-                grapplePoint.current = null;
-                canGrapple.current = false;
-            }
-        }
-    } 
-    else if (collision.type === 'wall') {
-        // Only stick to wall if cooldown is finished
-        if (wallJumpCooldown.current > 0) {
-            groupRef.current.position.copy(nextPos);
-        } else {
-            // Hard Snap to wall surface to prevent "sinking" due to sticky force
-            groupRef.current.position.copy(collision.snapPos!); 
-            state.current = 'WALL';
-            wallNormal.current.copy(collision.normal!);
-            
-            if (grapplePoint.current) {
-                grapplePoint.current = null;
-                canGrapple.current = false;
-            }
-            
-            // Cancel velocity into the wall
-            const vDotN = velocity.current.dot(collision.normal!);
-            if (vDotN < 0) velocity.current.sub(collision.normal!.clone().multiplyScalar(vDotN));
-        }
-    } 
-    else {
+      if (velocity.current.y > 0) {
         groupRef.current.position.copy(nextPos);
-        if (state.current === 'GROUND' || state.current === 'WALL') state.current = 'AIR';
+        if (state.current === 'GROUND') state.current = 'AIR';
+      } else {
+        groupRef.current.position.set(nextPos.x, collision.y!, nextPos.z);
+        velocity.current.y = 0;
+        state.current = 'GROUND';
+        if (grapplePoint.current) {
+          grapplePoint.current = null;
+          canGrapple.current = false;
+        }
+      }
+    }
+    else if (collision.type === 'wall') {
+      // Only stick to wall if cooldown is finished
+      if (wallJumpCooldown.current > 0) {
+        groupRef.current.position.copy(nextPos);
+      } else {
+        // Hard Snap to wall surface to prevent "sinking" due to sticky force
+        groupRef.current.position.copy(collision.snapPos!);
+        state.current = 'WALL';
+        wallNormal.current.copy(collision.normal!);
+
+        if (grapplePoint.current) {
+          grapplePoint.current = null;
+          canGrapple.current = false;
+        }
+
+        // Cancel velocity into the wall
+        const vDotN = velocity.current.dot(collision.normal!);
+        if (vDotN < 0) velocity.current.sub(collision.normal!.clone().multiplyScalar(vDotN));
+      }
+    }
+    else {
+      groupRef.current.position.copy(nextPos);
+      if (state.current === 'GROUND' || state.current === 'WALL') state.current = 'AIR';
     }
 
     // Camera Follow
-    const offset = new Vector3(0, 2, 5); 
+    const offset = new Vector3(0, 2, 5);
     offset.applyQuaternion(camera.quaternion);
     const desiredCamPos = groupRef.current.position.clone().add(offset);
     camera.position.lerp(desiredCamPos, 0.12);
-    
+
     onUpdatePosRef.current(groupRef.current.position);
 
     if (ropeRef.current) {
-        if (grapplePoint.current) {
-            ropeRef.current.visible = true;
-            const start = groupRef.current.position;
-            const end = grapplePoint.current;
-            const dist = start.distanceTo(end);
-            ropeRef.current.position.lerpVectors(start, end, 0.5);
-            ropeRef.current.lookAt(end);
-            ropeRef.current.rotateX(Math.PI / 2);
-            ropeRef.current.scale.set(0.1, dist, 0.1); 
-        } else {
-            ropeRef.current.visible = false;
-        }
+      if (grapplePoint.current) {
+        ropeRef.current.visible = true;
+        const start = groupRef.current.position;
+        const end = grapplePoint.current;
+        const dist = start.distanceTo(end);
+        ropeRef.current.position.lerpVectors(start, end, 0.5);
+        ropeRef.current.lookAt(end);
+        ropeRef.current.rotateX(Math.PI / 2);
+        ropeRef.current.scale.set(0.1, dist, 0.1);
+      } else {
+        ropeRef.current.visible = false;
+      }
     }
   });
 
@@ -369,38 +421,38 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   // Aggressive scaling for high-energy "Super Saiyan" feel at high scores
   const glowIntensity = 4 + score * 0.2;
   const lightIntensity = 5 + score * 0.25;
-  
+
   // Dynamic Comet Tail properties
   const trailWidth = 1.2 + score * 0.05;
   const trailLength = 6 + score * 0.2;
 
   return (
     <group>
-        <group ref={groupRef} position={[0, 30, 0]}>
-            <mesh>
-                <sphereGeometry args={[PLAYER_RADIUS, 16, 16]} />
-                <meshStandardMaterial 
-                    color={color} 
-                    emissive={color} 
-                    emissiveIntensity={glowIntensity} 
-                    toneMapped={false} 
-                />
-            </mesh>
-            <pointLight distance={15} decay={2} intensity={lightIntensity} color={color} />
-            <Trail 
-                width={trailWidth} 
-                length={trailLength} 
-                color={new Color(color)} 
-                attenuation={(t) => t * t * t} // Sharper taper for comet look
-            >
-                <mesh visible={false}><sphereGeometry args={[0.1]} /></mesh>
-            </Trail>
-        </group>
-
-        <mesh ref={ropeRef} visible={false}>
-            <cylinderGeometry args={[1, 1, 1, 6]} /> 
-            <meshBasicMaterial color="#00ff00" toneMapped={false} opacity={0.8} transparent />
+      <group ref={groupRef} position={[0, 30, 0]}>
+        <mesh>
+          <sphereGeometry args={[PLAYER_RADIUS, 16, 16]} />
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={glowIntensity}
+            toneMapped={false}
+          />
         </mesh>
+        <pointLight distance={15} decay={2} intensity={lightIntensity} color={color} />
+        <Trail
+          width={trailWidth}
+          length={trailLength}
+          color={new Color(color)}
+          attenuation={(t) => t * t * t} // Sharper taper for comet look
+        >
+          <mesh visible={false}><sphereGeometry args={[0.1]} /></mesh>
+        </Trail>
+      </group>
+
+      <mesh ref={ropeRef} visible={false}>
+        <cylinderGeometry args={[1, 1, 1, 6]} />
+        <meshBasicMaterial color="#00ff00" toneMapped={false} opacity={0.8} transparent />
+      </mesh>
     </group>
   );
 };

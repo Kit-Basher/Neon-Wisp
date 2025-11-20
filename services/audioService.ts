@@ -31,18 +31,18 @@ class AudioService {
     this.jumpSynth.volume.value = 0;
 
     // 2. GRAPPLE (Metallic + Noise Burst)
+    // Softened settings: Lower resonance, modulation, and harmonicity
     this.grappleSynth = new Tone.MetalSynth({
-      frequency: 100, // 100Hz base for reliable metal clank
       envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
-      harmonicity: 5.1,
-      modulationIndex: 32,
-      resonance: 4000,
-      octaves: 1.5
+      harmonicity: 3.0,
+      modulationIndex: 10,
+      resonance: 1000,
+      octaves: 1.0
     }).toDestination();
-    this.grappleSynth.volume.value = -10;
+    this.grappleSynth.volume.value = -8;
 
     this.grappleNoise = new Tone.NoiseSynth({
-        noise: { type: "white" },
+        noise: { type: "brown" }, // Changed to brown noise for softer thud
         envelope: { attack: 0.001, decay: 0.1, sustain: 0 }
     }).toDestination();
     this.grappleNoise.volume.value = -12;
@@ -88,7 +88,8 @@ class AudioService {
 
   playGrapple() {
     if (!this.isInitialized) this.init();
-    this.grappleSynth?.triggerAttackRelease("32n");
+    // Lower pitch to G2 for a deeper "clank"
+    this.grappleSynth?.triggerAttackRelease("G2", "32n");
     this.grappleNoise?.triggerAttackRelease("32n");
   }
 

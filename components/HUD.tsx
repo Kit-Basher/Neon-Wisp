@@ -128,9 +128,20 @@ const HUD: React.FC<HUDProps> = ({ score, isLocked, isGameOver, onRestart, senti
       {!isGameOver && (
         <div className={`flex justify-between items-end w-full transition-opacity duration-300 z-10 ${!isLocked ? 'opacity-50' : 'opacity-100'}`}>
             <div className="text-cyan-100/60 text-xs md:text-sm font-mono space-y-1 bg-black/40 p-3 md:p-4 rounded-lg backdrop-blur-sm border border-cyan-900/30">
-            <p><span className="text-cyan-400 font-bold">[WASD]</span> MOVE / WALL RUN</p>
-            <p><span className="text-cyan-400 font-bold">[SPACE]</span> JUMP / AUTO-GLIDE</p>
-            <p><span className="text-cyan-400 font-bold">[L-CLICK]</span> GRAPPLE HOOK</p>
+            <div className="grid grid-cols-2 gap-x-6">
+                <div>
+                    <p className="text-xs text-cyan-600 mb-1">KEYBOARD & MOUSE</p>
+                    <p><span className="text-cyan-400 font-bold">[WASD]</span> MOVE</p>
+                    <p><span className="text-cyan-400 font-bold">[SPACE]</span> JUMP / GLIDE</p>
+                    <p><span className="text-cyan-400 font-bold">[L-CLICK]</span> GRAPPLE</p>
+                </div>
+                <div>
+                    <p className="text-xs text-cyan-600 mb-1">CONTROLLER</p>
+                    <p><span className="text-cyan-400 font-bold">[L-STICK]</span> MOVE</p>
+                    <p><span className="text-cyan-400 font-bold">[A / CROSS]</span> JUMP</p>
+                    <p><span className="text-cyan-400 font-bold">[R1 / RB]</span> GRAPPLE</p>
+                </div>
+            </div>
             </div>
 
             <div className="text-right">

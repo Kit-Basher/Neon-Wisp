@@ -162,8 +162,7 @@ const GameLoop: React.FC<{
     if (isGameOver || !gameStarted) return;
 
     // Only advance game time if active
-    // On mobile, "isLocked" might not be true, but the game is active if playing
-    if (isLocked || isMobile) {
+    if (isLocked) {
       gameTimeRef.current += delta;
     }
 
@@ -179,7 +178,7 @@ const GameLoop: React.FC<{
 
     // Sentinel Speed: HYBRID (Time + Score)
     // Player Speed scales with score (Base 12 + Score*0.24)
-    // Sentinel Speed needs to match player potential
+    // Sentinel Speed should be slightly faster than base player, but manageable
     const sentinelSpeed = 12.0 + (time * 0.05) + (score * 0.2);
 
     if (now - lastSpawnTime.current > spawnDelay) {
@@ -245,19 +244,59 @@ const SentinelManager: React.FC<{
       const data = sentinels[i];
       if (!data) return;
 
+      // Initialize Aggro state in userData if not present
+      if (mesh.userData.isAggressive === undefined) {
+        mesh.userData.isAggressive = false;
+        // Assign a random wander target
+        mesh.userData.wanderTarget = mesh.position.clone().add(new THREE.Vector3(
+           (Math.random() - 0.5) * 100,
+           (Math.random() - 0.5) * 50,
+           (Math.random() - 0.5) * 100
+        ));
+      }
+
       const currentPos = mesh.position;
       const dist = currentPos.distanceTo(playerPos);
       if (dist < minDistance) minDistance = dist;
 
-      // --- Slow down near player ---
-      let effectiveSpeed = data.speed;
-      if (dist < 60) {
-        // Linear slowdown: at dist 0 -> 30% speed, at dist 60 -> 100% speed
-        const slowdownFactor = 0.3 + (dist / 60) * 0.7;
-        effectiveSpeed *= slowdownFactor;
+      // --- Aggro Logic ---
+      // Detection Range: 150 units
+      if (!mesh.userData.isAggressive && dist < 150) {
+        mesh.userData.isAggressive = true;
       }
 
-      const dir = playerPos.clone().sub(currentPos).normalize();
+      const isAggro = mesh.userData.isAggressive;
+      let moveTarget = playerPos;
+      let effectiveSpeed = data.speed;
+
+      if (isAggro) {
+        // --- CHASE BEHAVIOR ---
+        
+        // 1. Chase Speed: Slightly faster than normal difficulty
+        effectiveSpeed *= 1.1;
+
+        // 2. DODGE WINDOW (Safety Net)
+        // If very close (< 40 units), slow down to give player a chance to escape
+        if (dist < 40) {
+          effectiveSpeed *= 0.4; 
+        }
+
+      } else {
+        // --- LAZY WANDER BEHAVIOR ---
+        effectiveSpeed *= 0.3; // Much slower
+        moveTarget = mesh.userData.wanderTarget;
+
+        // If reached wander target, pick a new one
+        if (currentPos.distanceTo(moveTarget) < 10) {
+             mesh.userData.wanderTarget = currentPos.clone().add(new THREE.Vector3(
+                (Math.random() - 0.5) * 100,
+                (Math.random() - 0.5) * 50,
+                (Math.random() - 0.5) * 100
+             ));
+        }
+      }
+
+      const dir = moveTarget.clone().sub(currentPos).normalize();
       const moveStep = dir.clone().multiplyScalar(effectiveSpeed * dt);
       const nextPos = currentPos.clone().add(moveStep);
 
@@ -324,24 +363,19 @@ const SentinelManager: React.FC<{
       // --- Visual Warning (Pulse) ---
       const mat = mesh.material as THREE.MeshStandardMaterial;
       if (mat) {
-        if (dist < 50) {
-          const urgency = 1 - (dist / 50); // 0 to 1
-          // Faster pulse as they get closer (10Hz to 30Hz)
-          const pulseSpeed = 10 + urgency * 20;
-          const pulse = (Math.sin(time * pulseSpeed) + 1) / 2; // 0 to 1
-
-          // Increase brightness significantly when close (Base 3 up to ~13)
-          mat.emissiveIntensity = 3 + (pulse * 10 * urgency);
-
-          // Flash color towards white at peak of pulse for heat effect
-          if (pulse > 0.7) {
-            mat.emissive.setHex(0xffaaaa); // Whitish Red
-          } else {
-            mat.emissive.setHex(0xff0000); // Base Red
-          }
+        if (isAggro) {
+          // AGGRO VISUALS: Hyper Pulse
+          const pulseSpeed = 25; 
+          const pulse = (Math.sin(time * pulseSpeed) + 1) / 2;
+          mat.emissiveIntensity = 5 + (pulse * 10); 
+          // White hot center, red edge
+          mat.emissive.setHex(pulse > 0.5 ? 0xffffff : 0xff0000);
+          mat.color.setHex(0xffffff); // Body turns white
         } else {
-          mat.emissiveIntensity = 3;
-          mat.emissive.setHex(0xff0000);
+          // PASSIVE WANDER STATE
+          mat.emissiveIntensity = 2 + Math.sin(time * 2); // Slow breathe
+          mat.emissive.setHex(0xaa0000); // Dimmer red
+          mat.color.setHex(0x330000); // Dark body
         }
       }
 

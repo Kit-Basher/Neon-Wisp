@@ -41,11 +41,11 @@ const App: React.FC = () => {
     Tone.start();
     audioService.init();
     setGameStarted(true);
-    // On mobile, we don't lock pointers, but we consider the game "active"
-    if (!isMobile) {
-        setIsLocked(true);
-    }
-  }, [isMobile]);
+    // Set isLocked to true for both Mobile and Desktop.
+    // On Desktop, this state is synced with PointerLock.
+    // On Mobile, this acts as the "Game Active" flag.
+    setIsLocked(true);
+  }, []);
 
   const handleCollectStar = useCallback(() => {
     setScore(prev => prev + 1);
@@ -61,9 +61,9 @@ const App: React.FC = () => {
     setScore(0);
     setSentinelProximity(1000);
     setIsGameOver(false);
-    setIsLocked(false);
-    // Don't reset gameStarted, we stay in game mode
-  }, []);
+    // On Mobile, auto-resume (lock). On Desktop, set false to force "Click to Resume" overlay.
+    setIsLocked(isMobile);
+  }, [isMobile]);
 
   const handleWispPositionUpdate = useCallback((pos: Vector3) => {
     // Position tracking if needed

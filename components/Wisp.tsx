@@ -25,6 +25,11 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   const ropeRef = useRef<Mesh>(null);
   const { camera } = useThree();
 
+  // Set rotation order to prevent camera roll
+  useEffect(() => {
+    camera.rotation.order = 'YXZ';
+  }, [camera]);
+
   const onUpdatePosRef = useRef(onUpdatePosition);
   useEffect(() => {
     onUpdatePosRef.current = onUpdatePosition;
@@ -195,9 +200,9 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       return; // Skip physics processing
     }
 
-    // Only pause physics if NOT locked AND NOT mobile. Mobile doesn't use PointerLock, so isLocked might be false.
-    const isMobile = !!mobileInput;
-    if (!isLocked && !isMobile) return;
+    // Only pause physics if NOT locked.
+    // App.tsx ensures isLocked is true on mobile when playing.
+    if (!isLocked) return;
 
     const dt = Math.min(delta, 0.05);
     const moveSpeed = moveSpeedRef.current;
@@ -249,8 +254,8 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
     }
 
     // 3. Apply Camera Rotation (Gamepad + Mobile)
-    const lookSensitivity = 2.0;
-    if (inputLookX !== 0 || inputLookY !== 0) {
+    const lookSensitivity = 1.5; 
+    if (Math.abs(inputLookX) > 0.01 || Math.abs(inputLookY) > 0.01) {
       camera.rotation.y -= inputLookX * lookSensitivity * dt;
       camera.rotation.x -= inputLookY * lookSensitivity * dt;
       camera.rotation.x = MathUtils.clamp(camera.rotation.x, -Math.PI / 2, Math.PI / 2);

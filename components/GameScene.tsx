@@ -7,8 +7,9 @@ import * as Tone from 'tone';
 import ProceduralCity from './ProceduralCity';
 import Wisp from './Wisp';
 import MusicSystem from './MusicSystem';
+import MobileControls from './MobileControls';
 import { audioService } from '../services/audioService';
-import { BuildingData, StarData, SentinelData } from '../types';
+import { BuildingData, StarData, SentinelData, MobileInputState } from '../types';
 
 interface GameSceneProps {
   onWispPositionUpdate: (pos: THREE.Vector3) => void;
@@ -21,6 +22,8 @@ interface GameSceneProps {
   onRestart: (color: string) => void;
   wispColor: string;
   onProximityUpdate: (dist: number) => void;
+  mobileInput?: React.MutableRefObject<MobileInputState>;
+  isMobile?: boolean;
 }
 
 interface ExplosionData {
@@ -149,14 +152,16 @@ const GameLoop: React.FC<{
   score: number;
   playerPosRef: React.MutableRefObject<THREE.Vector3>;
   setSentinels: React.Dispatch<React.SetStateAction<SentinelData[]>>;
-}> = ({ isGameOver, isLocked, gameTimeRef, score, playerPosRef, setSentinels }) => {
+  isMobile?: boolean;
+}> = ({ isGameOver, isLocked, gameTimeRef, score, playerPosRef, setSentinels, isMobile }) => {
   const lastSpawnTime = useRef(0);
 
   useFrame((state, delta) => {
     if (isGameOver) return;
 
     // Only advance game time if active
-    if (isLocked) {
+    // On mobile, "isLocked" might not be true, but the game is active if playing
+    if (isLocked || isMobile) {
       gameTimeRef.current += delta;
     }
 
@@ -419,7 +424,9 @@ const GameScene: React.FC<GameSceneProps> = ({
   onGameOver,
   onRestart,
   wispColor,
-  onProximityUpdate
+  onProximityUpdate,
+  mobileInput,
+  isMobile
 }) => {
   const [collectedStars, setCollectedStars] = useState<Set<string>>(new Set());
   const [sentinels, setSentinels] = useState<SentinelData[]>([]);
@@ -431,10 +438,12 @@ const GameScene: React.FC<GameSceneProps> = ({
 
   // Memoize lock handlers
   const handleLock = useCallback(() => {
-    if (!isGameOver) setIsLocked(true);
-  }, [setIsLocked, isGameOver]);
+    if (!isGameOver && !isMobile) setIsLocked(true);
+  }, [setIsLocked, isGameOver, isMobile]);
 
-  const handleUnlock = useCallback(() => setIsLocked(false), [setIsLocked]);
+  const handleUnlock = useCallback(() => {
+    if (!isMobile) setIsLocked(false);
+  }, [setIsLocked, isMobile]);
 
   // Handle initial audio context start on user interaction
   const handleUserInteraction = useCallback(() => {
@@ -582,6 +591,12 @@ const GameScene: React.FC<GameSceneProps> = ({
   return (
     <div className="w-full h-full" onContextMenu={(e) => e.preventDefault()} onClick={handleUserInteraction}>
       <MusicSystem score={score} isLocked={isLocked} isGameOver={isGameOver} />
+      
+      {/* Mobile Controls Overlay */}
+      {isMobile && !isGameOver && mobileInput && (
+        <MobileControls inputRef={mobileInput} />
+      )}
+
       <Canvas shadows gl={{ antialias: false, powerPreference: "high-performance" }}>
         <color attach="background" args={['#020203']} />
         <Stars radius={20000} depth={100} count={15000} factor={6} saturation={0} fade speed={1} />
@@ -598,10 +613,13 @@ const GameScene: React.FC<GameSceneProps> = ({
           shadow-mapSize={[2048, 2048]}
         />
 
-        <PointerLockControls
-          onLock={handleLock}
-          onUnlock={handleUnlock}
-        />
+        {/* Only use PointerLock on Desktop */}
+        {!isMobile && (
+          <PointerLockControls
+            onLock={handleLock}
+            onUnlock={handleUnlock}
+          />
+        )}
 
         <GameLoop
           isGameOver={isGameOver}
@@ -610,6 +628,7 @@ const GameScene: React.FC<GameSceneProps> = ({
           score={score}
           playerPosRef={playerPosRef}
           setSentinels={setSentinels}
+          isMobile={isMobile}
         />
 
         <ProceduralCity buildings={buildings} />
@@ -639,6 +658,7 @@ const GameScene: React.FC<GameSceneProps> = ({
             isLocked={isLocked}
             score={score}
             baseColor={wispColor}
+            mobileInput={mobileInput}
           />
         )}
 

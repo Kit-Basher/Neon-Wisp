@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, Color, Group, Mesh, MathUtils } from 'three';
 import { Trail } from '@react-three/drei';
-import { BuildingData, StarData } from '../types';
+import { BuildingData, StarData, MobileInputState } from '../types';
 import { audioService } from '../services/audioService';
 
 interface WispProps {
@@ -14,11 +14,12 @@ interface WispProps {
   isLocked: boolean;
   score: number;
   baseColor: string;
+  mobileInput?: React.MutableRefObject<MobileInputState>;
 }
 
 type MovementState = 'AIR' | 'GROUND' | 'WALL' | 'GRAPPLING';
 
-const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collectedStars, onCollectStar, isLocked, score, baseColor }) => {
+const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collectedStars, onCollectStar, isLocked, score, baseColor, mobileInput }) => {
   const groupRef = useRef<Group>(null);
   const ropeRef = useRef<Mesh>(null);
   const { camera } = useThree();
@@ -175,7 +176,11 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   };
 
   useFrame((stateObj, delta) => {
-    if (!groupRef.current || !isLocked) return;
+    if (!groupRef.current) return;
+    
+    // Only pause physics if NOT locked AND NOT mobile. Mobile doesn't use PointerLock, so isLocked might be false.
+    const isMobile = !!mobileInput;
+    if (!isLocked && !isMobile) return;
 
     const dt = Math.min(delta, 0.05);
     const moveSpeed = moveSpeedRef.current;
@@ -184,47 +189,57 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       wallJumpCooldown.current -= dt;
     }
 
-    // --- INPUT POLLING (Keyboard + Gamepad) ---
-
-    // 1. Check Gamepad
+    // --- INPUT POLLING ---
     const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const gamepad = gamepads[0]; // Use the first controller found
+    const gamepad = gamepads[0];
 
-    // Deadzone helper
     const applyDeadzone = (val: number, threshold = 0.15) => {
       return Math.abs(val) > threshold ? val : 0;
     };
 
-    let gamepadMoveX = 0;
-    let gamepadMoveY = 0;
-    let gamepadLookX = 0;
-    let gamepadLookY = 0;
-    let gamepadJump = false;
-    let gamepadGrapple = false;
+    let inputMoveX = 0;
+    let inputMoveY = 0;
+    let inputLookX = 0;
+    let inputLookY = 0;
+    let isJumpPressed = keys.current['Space'];
+    let isGrapplePressed = mouse.current.left;
 
+    // 1. Gamepad
     if (gamepad) {
-      gamepadMoveX = applyDeadzone(gamepad.axes[0]);
-      gamepadMoveY = applyDeadzone(gamepad.axes[1]);
-      gamepadLookX = applyDeadzone(gamepad.axes[2]);
-      gamepadLookY = applyDeadzone(gamepad.axes[3]);
-
-      // Button 0: A/Cross (Jump)
-      // Button 5: R1/RB (Grapple) or Button 7: R2/RT
-      gamepadJump = gamepad.buttons[0]?.pressed;
-      gamepadGrapple = gamepad.buttons[5]?.pressed || gamepad.buttons[7]?.pressed;
-
-      // --- CAMERA CONTROL (Right Stick) ---
-      const lookSensitivity = 2.0;
-      if (gamepadLookX !== 0 || gamepadLookY !== 0) {
-        // Yaw (Y-axis rotation)
-        camera.rotation.y -= gamepadLookX * lookSensitivity * dt;
-
-        // Pitch (X-axis rotation) with clamping to avoid flipping
-        camera.rotation.x -= gamepadLookY * lookSensitivity * dt;
-        camera.rotation.x = MathUtils.clamp(camera.rotation.x, -Math.PI / 2, Math.PI / 2);
-      }
+      inputMoveX += applyDeadzone(gamepad.axes[0]);
+      inputMoveY += applyDeadzone(gamepad.axes[1]);
+      inputLookX += applyDeadzone(gamepad.axes[2]);
+      inputLookY += applyDeadzone(gamepad.axes[3]);
+      if (gamepad.buttons[0]?.pressed) isJumpPressed = true;
+      if (gamepad.buttons[5]?.pressed || gamepad.buttons[7]?.pressed) isGrapplePressed = true;
     }
 
+    // 2. Mobile Touch
+    if (mobileInput) {
+      inputMoveX += mobileInput.current.move.x;
+      inputMoveY += mobileInput.current.move.y;
+      
+      // Camera Look (Delta)
+      inputLookX += mobileInput.current.look.x * 200; // Scale for sensitivity
+      inputLookY += mobileInput.current.look.y * 200;
+
+      // Reset mobile look delta after reading
+      mobileInput.current.look.x = 0;
+      mobileInput.current.look.y = 0;
+
+      if (mobileInput.current.jump) isJumpPressed = true;
+      if (mobileInput.current.grapple) isGrapplePressed = true;
+    }
+
+    // 3. Apply Camera Rotation (Gamepad + Mobile)
+    const lookSensitivity = 2.0;
+    if (inputLookX !== 0 || inputLookY !== 0) {
+      camera.rotation.y -= inputLookX * lookSensitivity * dt;
+      camera.rotation.x -= inputLookY * lookSensitivity * dt;
+      camera.rotation.x = MathUtils.clamp(camera.rotation.x, -Math.PI / 2, Math.PI / 2);
+    }
+
+    // 4. Calculate Movement Vector
     const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
     forward.y = 0; forward.normalize();
@@ -238,15 +253,11 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
     if (keys.current['KeyA']) inputDir.sub(right);
     if (keys.current['KeyD']) inputDir.add(right);
 
-    // Gamepad (Left Stick)
-    if (gamepadMoveY !== 0) inputDir.add(forward.clone().multiplyScalar(-gamepadMoveY));
-    if (gamepadMoveX !== 0) inputDir.add(right.clone().multiplyScalar(gamepadMoveX));
+    // Analog (Gamepad + Mobile)
+    if (inputMoveY !== 0) inputDir.add(forward.clone().multiplyScalar(-inputMoveY));
+    if (inputMoveX !== 0) inputDir.add(right.clone().multiplyScalar(inputMoveX));
 
     if (inputDir.lengthSq() > 0) inputDir.normalize();
-
-    // Combine Inputs
-    const isJumpPressed = keys.current['Space'] || gamepadJump;
-    const isGrapplePressed = mouse.current.left || gamepadGrapple;
 
     // --- Star Collision Logic ---
     const playerPos = groupRef.current.position;

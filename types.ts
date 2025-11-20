@@ -26,6 +26,13 @@ export enum WispColor {
   Gold = '#ffd700'
 }
 
+export interface MobileInputState {
+  move: { x: number; y: number };
+  look: { x: number; y: number };
+  jump: boolean;
+  grapple: boolean;
+}
+
 // Fix for React Three Fiber JSX types
 declare global {
   namespace JSX {

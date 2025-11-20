@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Vector3 } from 'three';
 import GameScene from './components/GameScene';
 import HUD from './components/HUD';
+import { MobileInputState } from './types';
 
 const App: React.FC = () => {
   const [score, setScore] = useState(0);
@@ -9,6 +10,28 @@ const App: React.FC = () => {
   const [isGameOver, setIsGameOver] = useState(false);
   const [wispColor, setWispColor] = useState('#00ffff');
   const [sentinelProximity, setSentinelProximity] = useState(1000);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Ref for mobile input to avoid re-renders
+  const mobileInput = useRef<MobileInputState>({
+    move: { x: 0, y: 0 },
+    look: { x: 0, y: 0 },
+    jump: false,
+    grapple: false
+  });
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      
+      // Simple regex check for mobile devices or touch capability
+      if (/android|ipad|iphone|ipod/i.test(userAgent) || (isTouchDevice && window.innerWidth < 1024)) {
+        setIsMobile(true);
+      }
+    };
+    checkMobile();
+  }, []);
   
   const handleCollectStar = useCallback(() => {
     setScore(prev => prev + 1);
@@ -16,7 +39,7 @@ const App: React.FC = () => {
 
   const handleGameOver = useCallback(() => {
     setIsGameOver(true);
-    setIsLocked(false); // Unlock cursor so they can click retry
+    setIsLocked(false); 
   }, []);
 
   const handleRestart = useCallback((color: string) => {
@@ -24,7 +47,7 @@ const App: React.FC = () => {
     setScore(0);
     setSentinelProximity(1000);
     setIsGameOver(false);
-    setIsLocked(false); // Don't auto-lock; let user click "Resume" to satisfy browser security
+    setIsLocked(false);
   }, []);
 
   const handleWispPositionUpdate = useCallback((pos: Vector3) => {
@@ -45,6 +68,8 @@ const App: React.FC = () => {
             onRestart={handleRestart}
             wispColor={wispColor}
             onProximityUpdate={setSentinelProximity}
+            mobileInput={mobileInput}
+            isMobile={isMobile}
         />
       </div>
 

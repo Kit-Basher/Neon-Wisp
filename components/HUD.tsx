@@ -89,19 +89,52 @@ const HUD: React.FC<HUDProps> = ({ score, isLocked, isGameOver, onRestart, senti
         </div>
       )}
 
-      {/* Pause Screen Overlay */}
+      {/* Pause Screen Overlay with Controls */}
       {!isLocked && !isGameOver && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 pointer-events-none">
-           <div className="text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md z-50 pointer-events-none">
+           <div className="text-center mb-10">
               <h2 className="text-5xl font-bold text-white mb-2 tracking-widest drop-shadow-[0_0_15px_rgba(0,255,255,0.8)]">PAUSED</h2>
               <p className="text-cyan-400 tracking-[0.3em] animate-pulse font-mono">CLICK TO RESUME</p>
+           </div>
+
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl w-full px-8">
+              {/* Keyboard Controls */}
+              <div className="bg-black/60 border border-cyan-900/50 p-6 rounded-lg backdrop-blur-sm">
+                <p className="text-sm text-cyan-500 font-bold mb-4 tracking-widest border-b border-cyan-900/50 pb-2">KEYBOARD</p>
+                <div className="space-y-2 font-mono text-xs md:text-sm text-cyan-100/80">
+                  <div className="flex justify-between"><span className="text-cyan-400">[WASD]</span> <span>MOVE</span></div>
+                  <div className="flex justify-between"><span className="text-cyan-400">[SPACE]</span> <span>JUMP / GLIDE</span></div>
+                  <div className="flex justify-between"><span className="text-cyan-400">[L-CLICK]</span> <span>GRAPPLE</span></div>
+                </div>
+              </div>
+
+              {/* Objective */}
+              <div className="bg-black/60 border border-yellow-900/50 p-6 rounded-lg backdrop-blur-sm flex flex-col justify-center text-center">
+                 <p className="text-sm text-yellow-500 font-bold mb-4 tracking-widest border-b border-yellow-900/50 pb-2">MISSION</p>
+                 <div className="space-y-3 font-mono text-xs md:text-sm">
+                    <p className="text-yellow-100">COLLECT <span className="text-yellow-400 font-bold">STARS</span> TO INCREASE ENERGY</p>
+                    <p className="text-red-300">EVADE <span className="text-red-500 font-bold">SENTINELS</span></p>
+                    <p className="text-cyan-100/60 italic mt-2">"Speed increases with energy"</p>
+                 </div>
+              </div>
+
+              {/* Controller Controls */}
+              <div className="bg-black/60 border border-purple-900/50 p-6 rounded-lg backdrop-blur-sm">
+                <p className="text-sm text-purple-500 font-bold mb-4 tracking-widest border-b border-purple-900/50 pb-2">CONTROLLER</p>
+                <div className="space-y-2 font-mono text-xs md:text-sm text-purple-100/80">
+                  <div className="flex justify-between"><span className="text-purple-400">[L-STICK]</span> <span>MOVE</span></div>
+                  <div className="flex justify-between"><span className="text-purple-400">[R-STICK]</span> <span>LOOK</span></div>
+                  <div className="flex justify-between"><span className="text-purple-400">[A / X]</span> <span>JUMP</span></div>
+                  <div className="flex justify-between"><span className="text-purple-400">[RB / R1]</span> <span>GRAPPLE</span></div>
+                </div>
+              </div>
            </div>
         </div>
       )}
 
       {/* Header */}
       {!isGameOver && (
-        <div className={`flex justify-between items-start transition-opacity duration-300 z-10 ${!isLocked ? 'opacity-50' : 'opacity-100'}`}>
+        <div className={`flex justify-between items-start transition-opacity duration-300 z-10 ${!isLocked ? 'opacity-30 blur-sm' : 'opacity-100'}`}>
             <div>
             <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 drop-shadow-[0_0_15px_rgba(0,255,255,0.5)]">
                 NEON WISP
@@ -124,35 +157,6 @@ const HUD: React.FC<HUDProps> = ({ score, isLocked, isGameOver, onRestart, senti
         </div>
       )}
 
-      {/* Controls Footer */}
-      {!isGameOver && (
-        <div className={`flex justify-between items-end w-full transition-opacity duration-300 z-10 ${!isLocked ? 'opacity-50' : 'opacity-100'}`}>
-            <div className="text-cyan-100/60 text-xs md:text-sm font-mono space-y-1 bg-black/40 p-3 md:p-4 rounded-lg backdrop-blur-sm border border-cyan-900/30">
-            <div className="grid grid-cols-2 gap-x-6">
-                <div>
-                    <p className="text-xs text-cyan-600 mb-1">KEYBOARD & MOUSE</p>
-                    <p><span className="text-cyan-400 font-bold">[WASD]</span> MOVE</p>
-                    <p><span className="text-cyan-400 font-bold">[SPACE]</span> JUMP / GLIDE</p>
-                    <p><span className="text-cyan-400 font-bold">[L-CLICK]</span> GRAPPLE</p>
-                </div>
-                <div>
-                    <p className="text-xs text-cyan-600 mb-1">CONTROLLER</p>
-                    <p><span className="text-cyan-400 font-bold">[L-STICK]</span> MOVE</p>
-                    <p><span className="text-cyan-400 font-bold">[A / CROSS]</span> JUMP</p>
-                    <p><span className="text-cyan-400 font-bold">[R1 / RB]</span> GRAPPLE</p>
-                </div>
-            </div>
-            </div>
-
-            <div className="text-right">
-                <div className="bg-cyan-900/30 border border-cyan-500/50 p-3 md:p-4 rounded-lg backdrop-blur-md">
-                    <p className="text-cyan-300 font-bold mb-1 text-sm">OBJECTIVE</p>
-                    <p className="text-xs text-cyan-100">COLLECT STARS</p>
-                    <p className="text-xs text-red-300 mt-1">AVOID RED SENTINELS</p>
-                </div>
-            </div>
-        </div>
-      )}
     </div>
   );
 };

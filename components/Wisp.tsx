@@ -15,11 +15,12 @@ interface WispProps {
   score: number;
   baseColor: string;
   mobileInput?: React.MutableRefObject<MobileInputState>;
+  isTitleScreen?: boolean;
 }
 
 type MovementState = 'AIR' | 'GROUND' | 'WALL' | 'GRAPPLING';
 
-const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collectedStars, onCollectStar, isLocked, score, baseColor, mobileInput }) => {
+const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collectedStars, onCollectStar, isLocked, score, baseColor, mobileInput, isTitleScreen }) => {
   const groupRef = useRef<Group>(null);
   const ropeRef = useRef<Mesh>(null);
   const { camera } = useThree();
@@ -178,6 +179,22 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   useFrame((stateObj, delta) => {
     if (!groupRef.current) return;
     
+    // --- TITLE SCREEN ORBIT CAMERA ---
+    if (isTitleScreen) {
+      const time = stateObj.clock.getElapsedTime();
+      const radius = 8;
+      const height = 4;
+      const x = groupRef.current.position.x + Math.sin(time * 0.15) * radius;
+      const z = groupRef.current.position.z + Math.cos(time * 0.15) * radius;
+      
+      // Simple floating animation for the wisp
+      groupRef.current.position.y = 30 + Math.sin(time) * 0.5;
+      
+      camera.position.lerp(new Vector3(x, groupRef.current.position.y + height, z), 0.05);
+      camera.lookAt(groupRef.current.position);
+      return; // Skip physics processing
+    }
+
     // Only pause physics if NOT locked AND NOT mobile. Mobile doesn't use PointerLock, so isLocked might be false.
     const isMobile = !!mobileInput;
     if (!isLocked && !isMobile) return;

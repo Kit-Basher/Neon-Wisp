@@ -1,10 +1,14 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Vector3 } from 'three';
+import * as Tone from 'tone';
 import GameScene from './components/GameScene';
 import HUD from './components/HUD';
+import TitleScreen from './components/TitleScreen';
 import { MobileInputState } from './types';
+import { audioService } from './services/audioService';
 
 const App: React.FC = () => {
+  const [gameStarted, setGameStarted] = useState(false);
   const [score, setScore] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
@@ -33,6 +37,16 @@ const App: React.FC = () => {
     checkMobile();
   }, []);
   
+  const handleStartGame = useCallback(() => {
+    Tone.start();
+    audioService.init();
+    setGameStarted(true);
+    // On mobile, we don't lock pointers, but we consider the game "active"
+    if (!isMobile) {
+        setIsLocked(true);
+    }
+  }, [isMobile]);
+
   const handleCollectStar = useCallback(() => {
     setScore(prev => prev + 1);
   }, []);
@@ -48,6 +62,7 @@ const App: React.FC = () => {
     setSentinelProximity(1000);
     setIsGameOver(false);
     setIsLocked(false);
+    // Don't reset gameStarted, we stay in game mode
   }, []);
 
   const handleWispPositionUpdate = useCallback((pos: Vector3) => {
@@ -70,16 +85,23 @@ const App: React.FC = () => {
             onProximityUpdate={setSentinelProximity}
             mobileInput={mobileInput}
             isMobile={isMobile}
+            gameStarted={gameStarted}
         />
       </div>
 
-      <HUD 
-        score={score} 
-        isLocked={isLocked} 
-        isGameOver={isGameOver} 
-        onRestart={handleRestart} 
-        sentinelProximity={sentinelProximity}
-      />
+      {!gameStarted && (
+        <TitleScreen onStart={handleStartGame} />
+      )}
+
+      {gameStarted && (
+        <HUD 
+            score={score} 
+            isLocked={isLocked} 
+            isGameOver={isGameOver} 
+            onRestart={handleRestart} 
+            sentinelProximity={sentinelProximity}
+        />
+      )}
     </div>
   );
 };

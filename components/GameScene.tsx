@@ -24,6 +24,7 @@ interface GameSceneProps {
   onProximityUpdate: (dist: number) => void;
   mobileInput?: React.MutableRefObject<MobileInputState>;
   isMobile?: boolean;
+  gameStarted: boolean;
 }
 
 interface ExplosionData {
@@ -153,11 +154,12 @@ const GameLoop: React.FC<{
   playerPosRef: React.MutableRefObject<THREE.Vector3>;
   setSentinels: React.Dispatch<React.SetStateAction<SentinelData[]>>;
   isMobile?: boolean;
-}> = ({ isGameOver, isLocked, gameTimeRef, score, playerPosRef, setSentinels, isMobile }) => {
+  gameStarted: boolean;
+}> = ({ isGameOver, isLocked, gameTimeRef, score, playerPosRef, setSentinels, isMobile, gameStarted }) => {
   const lastSpawnTime = useRef(0);
 
   useFrame((state, delta) => {
-    if (isGameOver) return;
+    if (isGameOver || !gameStarted) return;
 
     // Only advance game time if active
     // On mobile, "isLocked" might not be true, but the game is active if playing
@@ -426,7 +428,8 @@ const GameScene: React.FC<GameSceneProps> = ({
   wispColor,
   onProximityUpdate,
   mobileInput,
-  isMobile
+  isMobile,
+  gameStarted
 }) => {
   const [collectedStars, setCollectedStars] = useState<Set<string>>(new Set());
   const [sentinels, setSentinels] = useState<SentinelData[]>([]);
@@ -438,18 +441,12 @@ const GameScene: React.FC<GameSceneProps> = ({
 
   // Memoize lock handlers
   const handleLock = useCallback(() => {
-    if (!isGameOver && !isMobile) setIsLocked(true);
-  }, [setIsLocked, isGameOver, isMobile]);
+    if (!isGameOver && !isMobile && gameStarted) setIsLocked(true);
+  }, [setIsLocked, isGameOver, isMobile, gameStarted]);
 
   const handleUnlock = useCallback(() => {
     if (!isMobile) setIsLocked(false);
   }, [setIsLocked, isMobile]);
-
-  // Handle initial audio context start on user interaction
-  const handleUserInteraction = useCallback(() => {
-    Tone.start();
-    audioService.init();
-  }, []);
 
   // Reset Game State
   useEffect(() => {
@@ -589,11 +586,11 @@ const GameScene: React.FC<GameSceneProps> = ({
   }, [onWispPositionUpdate]);
 
   return (
-    <div className="w-full h-full" onContextMenu={(e) => e.preventDefault()} onClick={handleUserInteraction}>
+    <div className="w-full h-full" onContextMenu={(e) => e.preventDefault()}>
       <MusicSystem score={score} isLocked={isLocked} isGameOver={isGameOver} />
       
       {/* Mobile Controls Overlay */}
-      {isMobile && !isGameOver && mobileInput && (
+      {isMobile && !isGameOver && gameStarted && mobileInput && (
         <MobileControls inputRef={mobileInput} />
       )}
 
@@ -613,8 +610,8 @@ const GameScene: React.FC<GameSceneProps> = ({
           shadow-mapSize={[2048, 2048]}
         />
 
-        {/* Only use PointerLock on Desktop */}
-        {!isMobile && (
+        {/* Only use PointerLock on Desktop when Game Started */}
+        {!isMobile && gameStarted && (
           <PointerLockControls
             onLock={handleLock}
             onUnlock={handleUnlock}
@@ -629,6 +626,7 @@ const GameScene: React.FC<GameSceneProps> = ({
           playerPosRef={playerPosRef}
           setSentinels={setSentinels}
           isMobile={isMobile}
+          gameStarted={gameStarted}
         />
 
         <ProceduralCity buildings={buildings} />
@@ -659,6 +657,7 @@ const GameScene: React.FC<GameSceneProps> = ({
             score={score}
             baseColor={wispColor}
             mobileInput={mobileInput}
+            isTitleScreen={!gameStarted}
           />
         )}
 

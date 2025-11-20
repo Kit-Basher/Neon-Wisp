@@ -2,7 +2,8 @@ import * as Tone from 'tone';
 
 class AudioService {
   private jumpSynth: Tone.MembraneSynth | null = null;
-  private grappleSynth: Tone.MetalSynth | null = null;
+  private grappleSynth: Tone.Synth | null = null;
+  private grappleFilter: Tone.Filter | null = null;
   private grappleNoise: Tone.NoiseSynth | null = null;
   private collectSynth: Tone.PolySynth | null = null;
   
@@ -30,22 +31,21 @@ class AudioService {
     // Boosted volume, Note: triggering C2 ensures audible low end
     this.jumpSynth.volume.value = 0;
 
-    // 2. GRAPPLE (Metallic + Noise Burst)
-    // Softened settings: Lower resonance, modulation, and harmonicity
-    this.grappleSynth = new Tone.MetalSynth({
-      envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
-      harmonicity: 3.0,
-      modulationIndex: 10,
-      resonance: 1000,
-      octaves: 1.0
-    }).toDestination();
-    this.grappleSynth.volume.value = -8;
+    // 2. GRAPPLE (Mechanical Click/Latch)
+    // Replaced harsh MetalSynth with a filtered Square wave for a soft mechanical "thwip"
+    this.grappleFilter = new Tone.Filter(1500, "lowpass").toDestination();
+    
+    this.grappleSynth = new Tone.Synth({
+      oscillator: { type: "square" }, // Mechanical tone
+      envelope: { attack: 0.005, decay: 0.05, sustain: 0, release: 0.01 } // Very short click
+    }).connect(this.grappleFilter);
+    this.grappleSynth.volume.value = -12;
 
     this.grappleNoise = new Tone.NoiseSynth({
-        noise: { type: "brown" }, // Changed to brown noise for softer thud
-        envelope: { attack: 0.001, decay: 0.1, sustain: 0 }
+        noise: { type: "brown" }, // Soft puff of air
+        envelope: { attack: 0.005, decay: 0.08, sustain: 0 }
     }).toDestination();
-    this.grappleNoise.volume.value = -12;
+    this.grappleNoise.volume.value = -18; // Very subtle
 
     // 3. COLLECT (Sparkle Chord)
     this.collectSynth = new Tone.PolySynth(Tone.Synth, {
@@ -88,8 +88,8 @@ class AudioService {
 
   playGrapple() {
     if (!this.isInitialized) this.init();
-    // Lower pitch to G2 for a deeper "clank"
-    this.grappleSynth?.triggerAttackRelease("G2", "32n");
+    // Short low tone for the latch mechanism
+    this.grappleSynth?.triggerAttackRelease("C2", "32n");
     this.grappleNoise?.triggerAttackRelease("32n");
   }
 

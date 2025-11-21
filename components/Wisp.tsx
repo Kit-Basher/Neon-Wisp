@@ -53,7 +53,6 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   const WALL_JUMP_FORCE_UP = 24.0;
   const WALL_JUMP_FORCE_OUT = 40.0;
   const GLIDE_GRAVITY_SCALE = 0.1;
-  const AIR_CONTROL = 0.3;
   const GRAPPLE_SPEED_MULT = 2.5;
   const GRAPPLE_PULL_FORCE = 60.0;
   const PLAYER_RADIUS = 0.15;
@@ -330,16 +329,21 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       velocity.current.y -= GRAVITY * gravityMult * dt;
     }
 
-    const currentSpeed = moveSpeed * (state.current === 'AIR' ? AIR_CONTROL : 1.0);
-
+    // --- MOVEMENT PHYSICS ---
     if (state.current === 'GRAPPLING' && grapplePoint.current) {
       const toPoint = grapplePoint.current.clone().sub(groupRef.current.position);
       const dir = toPoint.normalize();
+      
+      // Add pull force
       velocity.current.add(dir.multiplyScalar(GRAPPLE_PULL_FORCE * dt));
+      
+      // Allow swing influence (air control during grapple)
       if (inputDir.lengthSq() > 0) {
-        velocity.current.add(inputDir.multiplyScalar(currentSpeed * GRAPPLE_SPEED_MULT * dt));
+        velocity.current.add(inputDir.multiplyScalar(moveSpeed * GRAPPLE_SPEED_MULT * dt));
       }
-      velocity.current.multiplyScalar(0.995);
+      
+      // Minimal damping on rope to allow speed buildup (pendulum effect)
+      velocity.current.multiplyScalar(0.998);
 
     } else if (state.current === 'WALL') {
       const vDotN = velocity.current.dot(wallNormal.current);
@@ -348,7 +352,7 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       const inputDotN = inputDir.dot(wallNormal.current);
       const wallMoveDir = inputDir.clone().sub(wallNormal.current.clone().multiplyScalar(inputDotN));
 
-      velocity.current.add(wallMoveDir.multiplyScalar(currentSpeed * 6 * dt));
+      velocity.current.add(wallMoveDir.multiplyScalar(moveSpeed * 6 * dt));
       velocity.current.x *= 0.92;
       velocity.current.z *= 0.92;
       velocity.current.y *= 0.6;
@@ -368,13 +372,49 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       }
 
     } else {
-      velocity.current.x += inputDir.x * currentSpeed * 10 * dt;
-      velocity.current.z += inputDir.z * currentSpeed * 10 * dt;
+      // --- GROUND & AIR MOVEMENT (Momentum Preserving) ---
+      const isGround = state.current === 'GROUND';
+      
+      // Parameters
+      // Air acceleration is lower to make changing direction slower, but we don't clamp speed.
+      // Ground acceleration is high for snappy response.
+      const accel = isGround ? 80.0 : 30.0;
+      
+      // Friction/Drag
+      // Ground: High friction to stop quickly when input released.
+      // Air: Very low drag to preserve momentum from grapples.
+      const friction = isGround ? 12.0 : 0.2; 
+      
+      // The target "Run" speed. We can exceed this with momentum (grapple), but not by walking.
+      const limitSpeed = moveSpeed; 
 
-      const friction = state.current === 'GROUND' ? 0.85 : 0.97;
-      velocity.current.x *= friction;
-      velocity.current.z *= friction;
+      // 1. Apply Input Force
+      if (inputDir.lengthSq() > 0) {
+          const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+          
+          // Projection of velocity onto input direction
+          const currentSpeedInDir = currentHVel.dot(inputDir);
+          
+          // Only accelerate if we haven't reached max run speed in this direction.
+          // This allows "Air Strafing" mechanics and prevents infinite acceleration from holding W.
+          // However, it DOES NOT clamp existing speed, allowing you to fly past at Mach 10.
+          const availableSpeed = limitSpeed - currentSpeedInDir;
+          
+          if (availableSpeed > 0) {
+              // Accelerate up to the limit
+              const accelToApply = Math.min(availableSpeed, accel * dt);
+              velocity.current.x += inputDir.x * accelToApply;
+              velocity.current.z += inputDir.z * accelToApply;
+          }
+      }
 
+      // 2. Apply Drag
+      // Frame-rate independent exponential decay
+      const dragFactor = Math.exp(-friction * dt);
+      velocity.current.x *= dragFactor;
+      velocity.current.z *= dragFactor;
+
+      // 3. Jump
       if (isJumpPressed && state.current === 'GROUND' && canJump.current) {
         velocity.current.y = JUMP_FORCE;
         state.current = 'AIR';

@@ -1,30 +1,4 @@
 import * as THREE from 'three';
-import React from 'react';
-
-// Augment JSX namespace to include React Three Fiber elements
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      group: any;
-      mesh: any;
-      instancedMesh: any;
-      boxGeometry: any;
-      meshStandardMaterial: any;
-      meshBasicMaterial: any;
-      planeGeometry: any;
-      sphereGeometry: any;
-      pointLight: any;
-      cylinderGeometry: any;
-      octahedronGeometry: any;
-      icosahedronGeometry: any;
-      ambientLight: any;
-      hemisphereLight: any;
-      directionalLight: any;
-      fog: any;
-      color: any;
-    }
-  }
-}
 
 export interface BuildingData {
   position: [number, number, number];

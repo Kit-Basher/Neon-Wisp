@@ -48,13 +48,14 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
   const moveSpeedRef = useRef(dynamicSpeed);
   moveSpeedRef.current = dynamicSpeed;
 
-  const GRAVITY = 30.0;
-  const JUMP_FORCE = 22.0;
-  const WALL_JUMP_FORCE_UP = 24.0;
-  const WALL_JUMP_FORCE_OUT = 40.0;
-  const GLIDE_GRAVITY_SCALE = 0.1;
-  const GRAPPLE_SPEED_MULT = 2.5;
-  const GRAPPLE_PULL_FORCE = 60.0;
+  // PHYSICS TUNING: "Heavy/Dense" Feel
+  const GRAVITY = 55.0;           
+  const JUMP_FORCE = 30.0;        
+  const WALL_JUMP_FORCE_UP = 34.0;
+  const WALL_JUMP_FORCE_OUT = 45.0;
+  const GLIDE_GRAVITY_SCALE = 0.2;
+  const GRAPPLE_SPEED_MULT = 2.0; 
+  const GRAPPLE_PULL_FORCE = 40.0; // Reduced base force slightly
   const PLAYER_RADIUS = 0.15;
   const COLLISION_BUFFER = 1.5;
   const STICKY_FORCE = 30.0;
@@ -308,8 +309,17 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
         }
       }
     } else {
+      // Grapple Release Boost
+      if (state.current === 'GRAPPLING') {
+        state.current = 'AIR';
+        // If releasing while moving fast, apply a slight slingshot boost
+        const currentSpeed = velocity.current.length();
+        if (currentSpeed > moveSpeed) {
+            // Add a 15% boost to current velocity to simulate the "snap" release
+            velocity.current.add(velocity.current.clone().normalize().multiplyScalar(currentSpeed * 0.15));
+        }
+      }
       grapplePoint.current = null;
-      if (state.current === 'GRAPPLING') state.current = 'AIR';
       canGrapple.current = true;
     }
 
@@ -332,18 +342,33 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
     // --- MOVEMENT PHYSICS ---
     if (state.current === 'GRAPPLING' && grapplePoint.current) {
       const toPoint = grapplePoint.current.clone().sub(groupRef.current.position);
+      const dist = toPoint.length();
       const dir = toPoint.normalize();
       
+      // ELASTICITY: Spring force (Hooke's Law approximation)
+      // Pulls harder when far away (snappy), softer when close (floaty)
+      // Reduced multiplier from 3.0 to 1.5 to prevent excessive speed gain
+      const springForce = GRAPPLE_PULL_FORCE + (dist * 1.5);
+
       // Add pull force
-      velocity.current.add(dir.multiplyScalar(GRAPPLE_PULL_FORCE * dt));
+      velocity.current.add(dir.multiplyScalar(springForce * dt));
       
       // Allow swing influence (air control during grapple)
       if (inputDir.lengthSq() > 0) {
         velocity.current.add(inputDir.multiplyScalar(moveSpeed * GRAPPLE_SPEED_MULT * dt));
       }
       
-      // Minimal damping on rope to allow speed buildup (pendulum effect)
-      velocity.current.multiplyScalar(0.998);
+      // Speed Limiter on Rope
+      const currentSpeed = velocity.current.length();
+      const maxSafeSpeed = moveSpeed * 2.5;
+      
+      if (currentSpeed > maxSafeSpeed) {
+         // Stronger damping if overspeeding to prevent infinite energy gain
+         velocity.current.multiplyScalar(0.97); 
+      } else {
+         // Minimal damping normally (Pendulum effect)
+         velocity.current.multiplyScalar(0.998);
+      }
 
     } else if (state.current === 'WALL') {
       const vDotN = velocity.current.dot(wallNormal.current);
@@ -364,6 +389,12 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
         velocity.current.y = WALL_JUMP_FORCE_UP;
         // Increased force away from wall
         velocity.current.add(wallNormal.current.clone().multiplyScalar(WALL_JUMP_FORCE_OUT));
+        
+        // Add forward momentum boost if holding direction during wall jump
+        if (inputDir.lengthSq() > 0) {
+            velocity.current.add(inputDir.multiplyScalar(5.0));
+        }
+
         state.current = 'AIR';
         canJump.current = false;
         grapplePoint.current = null;
@@ -375,29 +406,34 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
       // --- GROUND & AIR MOVEMENT (Momentum Preserving) ---
       const isGround = state.current === 'GROUND';
       
-      // Parameters
-      // Air acceleration is lower to make changing direction slower, but we don't clamp speed.
-      // Ground acceleration is high for snappy response.
-      const accel = isGround ? 80.0 : 30.0;
+      // Parameters - Heavier Feel
+      // Lower acceleration (inertia), Higher friction on ground (weight), Lower friction in air (momentum)
+      // INCREASED AIR ACCEL from 15.0 to 45.0 for better air control
+      const accel = isGround ? 60.0 : 45.0; 
       
-      // Friction/Drag
-      // Ground: High friction to stop quickly when input released.
-      // Air: Very low drag to preserve momentum from grapples.
-      const friction = isGround ? 12.0 : 0.2; 
+      // Friction/Drag Logic
+      // Ground Friction increased to 14 (stops faster, feels heavy). Air friction lowered to 0.1.
+      let friction = isGround ? 14.0 : 0.1; 
       
-      // The target "Run" speed. We can exceed this with momentum (grapple), but not by walking.
+      const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
+      const hSpeed = currentHVel.length();
       const limitSpeed = moveSpeed; 
 
-      // 1. Apply Input Force
+      // DYNAMIC AIR FRICTION:
+      // If moving faster than limitSpeed in AIR, reduce friction drastically to preserve that momentum.
+      if (!isGround && hSpeed > limitSpeed) {
+          // Reduce friction as speed increases above limit.
+          const overspeedFactor = Math.min(1, (hSpeed - limitSpeed) / limitSpeed);
+          friction = MathUtils.lerp(0.1, 0.001, overspeedFactor);
+      }
+
+      // 1. Apply Input Force (Source Engine Style)
       if (inputDir.lengthSq() > 0) {
-          const currentHVel = new Vector3(velocity.current.x, 0, velocity.current.z);
-          
           // Projection of velocity onto input direction
           const currentSpeedInDir = currentHVel.dot(inputDir);
           
           // Only accelerate if we haven't reached max run speed in this direction.
-          // This allows "Air Strafing" mechanics and prevents infinite acceleration from holding W.
-          // However, it DOES NOT clamp existing speed, allowing you to fly past at Mach 10.
+          // This allows "Air Strafing" mechanics.
           const availableSpeed = limitSpeed - currentSpeedInDir;
           
           if (availableSpeed > 0) {
@@ -484,7 +520,10 @@ const Wisp: React.FC<WispProps> = ({ onUpdatePosition, buildings, stars, collect
         ropeRef.current.position.lerpVectors(start, end, 0.5);
         ropeRef.current.lookAt(end);
         ropeRef.current.rotateX(Math.PI / 2);
-        ropeRef.current.scale.set(0.1, dist, 0.1);
+        
+        // Visual Elasticity: Rope gets thinner as it stretches
+        const thickness = Math.max(0.02, 0.12 - (dist * 0.001)); 
+        ropeRef.current.scale.set(thickness, dist, thickness);
       } else {
         ropeRef.current.visible = false;
       }
